@@ -18,27 +18,31 @@ def getExcelData(dataSetPath):
 
 
 class ServiceFunctions:
+    @staticmethod
     def getCsvDataSetInfoForFirstTenRecords(dataSetPath):
         try:
             data = getCSVData(dataSetPath)
             return data.head(10).to_html()
         except Exception as e:
-            return f"<p>Error: File not found: , Reason: {e}</p>"
+            return f"<p>Error: File not found: {dataSetPath}, Reason: {e}</p>"
 
+    @staticmethod
     def getExcelDataSetInfoForFirstTenRecords(dataSetPath):
         try:
-            data = getCSVData(dataSetPath)
+            data = getExcelData(dataSetPath)
             return data.head(10).to_html()
         except Exception as e:
             return f"<p>Error: File not found: {dataSetPath}, Reason: {e}</p>"
 
+    @staticmethod
     def getExcelDataSetInfoForLastTenRecords(dataSetPath):
         try:
-            data = getCSVData(dataSetPath)
+            data = getExcelData(dataSetPath)
             return data.tail(10).to_html()
         except Exception as e:
             return f"<p>Error: File not found: {dataSetPath}, Reason: {e}</p>"
 
+    @staticmethod
     def getCsvDataSetInfo(dataSetPath):
         try:
             data = getCSVData(dataSetPath)
@@ -46,6 +50,7 @@ class ServiceFunctions:
         except Exception as e:
             return f"<p>Error: File not found: {dataSetPath}, Reason: {e}</p>"
 
+    @staticmethod
     def getExcelDataSetInfo(dataSetPath):
         try:
             data = getExcelData(dataSetPath)
@@ -53,43 +58,84 @@ class ServiceFunctions:
         except Exception as e:
             return f"<p>Error: File not found: {dataSetPath}, Reason: {e}</p>"
 
-    def hello_world(self):
-        print("Hello World!")
+    @staticmethod
+    def hello_world():
+        return "Hello World!"
 
+    @staticmethod
     def getDataSetShape(dataSetPath):
-        data = getExcelData(dataSetPath)
-        return data.shape
+        try:
+            data = getExcelData(dataSetPath)
+            return data.shape
+        except Exception as e:
+            print(f"Error getting dataset shape: {e}")
+            return None
 
     # data set column information
+    @staticmethod
     def getColumnInfo(dataSetPath):
-        data = getExcelData(dataSetPath)
-        return data.info()
+        try:
+            data = getExcelData(dataSetPath)
+            return data.info()
+        except Exception as e:
+            print(f"Error getting column info: {e}")
+            return None
 
     # data set unique values
+    @staticmethod
     def getUniqueColumnValues(dataSetPath):
-        data = getExcelData(dataSetPath)
-        return data.NOC.unique()
+        try:
+            data = getExcelData(dataSetPath)
+            return data.NOC.unique()
+        except Exception as e:
+            print(f"Error getting unique values: {e}")
+            return None
 
     # data set value count for a column
+    @staticmethod
     def getColumnValueCount(dataSetPath):
-        data = getExcelData(dataSetPath)
-        return data.NOC.value_counts()
+        try:
+            data = getExcelData(dataSetPath)
+            return data.NOC.value_counts()
+        except Exception as e:
+            print(f"Error getting column value count: {e}")
+            return None
 
     # combining columns
+    @staticmethod
     def combineDataSetColumns(dataSetPath):
-        data = getExcelData(dataSetPath)
-        return data.NOC + " | " + data.Discipline
+        try:
+            data = getExcelData(dataSetPath)
+            return data.NOC + " | " + data.Discipline
+        except Exception as e:
+            print(f"Error combining columns: {e}")
+            return None
 
     # grouping data
+    @staticmethod
     def groupDataByColumnAndCount(dataSetPath):
-        data = getExcelData(dataSetPath)
-        return data.groupby('NOC').NOC.count()
+        try:
+            data = getExcelData(dataSetPath)
+            return data.groupby('NOC').NOC.count()
+        except Exception as e:
+            print(f"Error grouping data: {e}")
+            return None
 
+    @staticmethod
     def groupDataByTwoColumnsAndCount(dataSetPath):
-        data = getExcelData(dataSetPath)
-        return data.groupby(['NOC', 'Discipline']).NOC.value_counts()
+        try:
+            data = getExcelData(dataSetPath)
+            return data.groupby(['NOC', 'Discipline']).NOC.value_counts()
+        except Exception as e:
+            print(f"Error grouping data by two columns: {e}")
+            return None
 
     # ordering data based on alphabetical order and column specific
+    @staticmethod
     def orderingData(dataSetPath):
-        data = getExcelData(dataSetPath)
-        return data.sort_values(by=['NOC', 'Discipline'])
+        try:
+            data = getExcelData(dataSetPath)
+            return data.sort_values(by=['NOC', 'Discipline'])
+        except Exception as e:
+            print(f"Error ordering data: {e}")
+            return None
