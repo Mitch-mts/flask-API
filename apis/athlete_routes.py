@@ -10,35 +10,35 @@ functions = ServiceFunctions()
 # Dataset path
 athletesDataSetPath = "./data/Athletes.xlsx"
 
-def getAthletesInfoFromTheHead():
+def getAthletesInfoFromTheHead(numberOfRecords):
     """Get first 10 athlete records"""
     try:
-        data = functions.getExcelDataSetInfoForFirstTenRecords(athletesDataSetPath)
+        data = functions.getExcelDataSetInfoForFirstRecords(athletesDataSetPath, numberOfRecords)
         return data
     except Exception as e:
         return f"<p>Error: File not found: {athletesDataSetPath}, Reason: {e}</p>"
 
-def getAthletesInfoFromTheTail():
+def getAthletesInfoFromTheTail(numberOfRecords):
     """Get last 10 athlete records"""
     try:
-        data = functions.getExcelDataSetInfoForLastTenRecords(athletesDataSetPath)
+        data = functions.getExcelDataSetInfoForLastRecords(athletesDataSetPath, numberOfRecords)
         return data
     except Exception as e:
         return f"<p>Error: File not found: {athletesDataSetPath}, Reason: {e}</p>"
 
-def getAthletesDataFromHead():
+def getAthletesDataFromHead(numberOfRecords):
     """Get first 10 athlete records as raw data"""
     try:
         data = getExcelData(athletesDataSetPath)
-        return data.head(10)
+        return data.head(numberOfRecords)
     except Exception as e:
         return None
 
-def getAthletesDataFromTail():
+def getAthletesDataFromTail(numberOfRecords):
     """Get last 10 athlete records as raw data"""
     try:
         data = getExcelData(athletesDataSetPath)
-        return data.tail(10)
+        return data.tail(numberOfRecords)
     except Exception as e:
         return None
 

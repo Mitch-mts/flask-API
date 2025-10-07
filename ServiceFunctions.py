@@ -19,26 +19,26 @@ def getExcelData(dataSetPath):
 
 class ServiceFunctions:
     @staticmethod
-    def getCsvDataSetInfoForFirstTenRecords(dataSetPath):
+    def getCsvDataSetInfoForFirstRecords(dataSetPath, numberOfRecords):
         try:
             data = getCSVData(dataSetPath)
-            return data.head(10).to_html()
+            return data.head(numberOfRecords).to_html()
         except Exception as e:
             return f"<p>Error: File not found: {dataSetPath}, Reason: {e}</p>"
 
     @staticmethod
-    def getExcelDataSetInfoForFirstTenRecords(dataSetPath):
+    def getExcelDataSetInfoForFirstRecords(dataSetPath, numberOfRecords):
         try:
             data = getExcelData(dataSetPath)
-            return data.head(10).to_html()
+            return data.head(numberOfRecords).to_html()
         except Exception as e:
             return f"<p>Error: File not found: {dataSetPath}, Reason: {e}</p>"
 
     @staticmethod
-    def getExcelDataSetInfoForLastTenRecords(dataSetPath):
+    def getExcelDataSetInfoForLastRecords(dataSetPath, numberOfRecords):
         try:
             data = getExcelData(dataSetPath)
-            return data.tail(10).to_html()
+            return data.tail(numberOfRecords).to_html()
         except Exception as e:
             return f"<p>Error: File not found: {dataSetPath}, Reason: {e}</p>"
 
