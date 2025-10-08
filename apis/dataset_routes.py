@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from ServiceFunctions import ServiceFunctions, getExcelData
+from ServiceFunctions import ServiceFunctions, getData, getExcelData
 
 # Create Blueprint for dataset routes
 dataset_bp = Blueprint('dataset', __name__)
@@ -34,13 +34,20 @@ def getDatasetShape():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@dataset_bp.route('/api/dataset/unique-values')
-def getUniqueValues():
+@dataset_bp.route('/api/dataset/unique-values/<string:columnName>', methods=['GET'])
+def getUniqueValues(columnName):
     """
     Get unique values from NOC column
     ---
     tags:
       - Dataset Info
+    parameters:
+      - name: columnName
+        in: path
+        type: string
+        required: true
+        description: Name of the column to get value counts for
+        example: "NOC"
     responses:
       200:
         description: Unique NOC values
@@ -53,29 +60,54 @@ def getUniqueValues():
                 type: string
     """
     try:
-        unique_values = functions.getUniqueColumnValues(athletesDataSetPath)
+        unique_values = functions.getUniqueColumnValues(athletesDataSetPath, columnName)
         return jsonify({"unique_values": unique_values.tolist()})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@dataset_bp.route('/api/dataset/column-counts')
-def getColumnCounts():
+@dataset_bp.route('/api/dataset/column-counts/<string:columnName>', methods=['GET'])
+def getColumnCounts(columnName):
     """
-    Get value counts for NOC column
+    Get value counts for any column
     ---
     tags:
       - Dataset Info
+    parameters:
+      - name: columnName
+        in: path
+        type: string
+        required: true
+        description: Name of the column to get value counts for
+        example: "NOC"
     responses:
       200:
-        description: NOC column value counts
+        description: Column value counts
         schema:
           type: object
           properties:
             value_counts:
               type: object
+              description: Dictionary with column values as keys and their counts as values
+              example: {"USA": 2052, "China": 1656, "Russia": 1327}
+      400:
+        description: Bad request - Invalid column name
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: "Column 'InvalidColumn' not found in dataset"
+      500:
+        description: Internal server error
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: "Failed to process request"
     """
     try:
-        counts = functions.getColumnValueCount(athletesDataSetPath)
+        counts = functions.getColumnValueCount(athletesDataSetPath, columnName)
         return jsonify({"value_counts": counts.to_dict()})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -102,7 +134,7 @@ def getDatasetColumns():
               type: object
     """
     try:
-        data = getExcelData(athletesDataSetPath)
+        data = getData(athletesDataSetPath)
         if data is not None:
             return jsonify({
                 "columns": data.columns.tolist(),
@@ -144,7 +176,7 @@ def getDatasetSample():
     """
     try:
         size = request.args.get('size', 5, type=int)
-        data = getExcelData(athletesDataSetPath)
+        data = getData(athletesDataSetPath)
         if data is not None:
             sample_data = data.sample(n=min(size, len(data)))
             records = sample_data.to_dict('records')
@@ -204,7 +236,7 @@ def getDatasetPaginated():
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
         
-        data = getExcelData(athletesDataSetPath)
+        data = getData(athletesDataSetPath)
         if data is not None:
             total_records = len(data)
             total_pages = (total_records + per_page - 1) // per_page
