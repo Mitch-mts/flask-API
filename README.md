@@ -96,15 +96,70 @@ Access the interactive API documentation at `/apidocs/` to:
 - See request/response schemas
 - Understand API parameters and responses
 
-## Data Files
+## Data Files and Configuration
 
-The API expects the following data files in the `data/` directory:
+### Dataset Directory Configuration
+
+The API now uses a **centralized dataset configuration system** that automatically detects the best location for your data files. The system checks for data files in the following priority order:
+
+1. **Environment Variable**: `DATA_DIR` environment variable (highest priority)
+2. **System Directories**: `/opt/app/data`, `/usr/local/share/app/data`, `/var/lib/app/data`, `/home/app/data`
+3. **Local Directory**: `./data/` (fallback for development)
+
+### Setting Custom Data Directory
+
+#### Option 1: Environment Variable (Recommended)
+```bash
+export DATA_DIR=/path/to/your/data
+python app.py
+```
+
+#### Option 2: System Directory
+Place your data files in one of these system directories:
+- `/opt/app/data/` (common for containerized apps)
+- `/usr/local/share/app/data/` (system-wide data directory)
+- `/var/lib/app/data/` (alternative system data directory)
+- `/home/app/data/` (user-specific data directory)
+
+### Data Files
+
+The API expects the following data files in your configured data directory:
 - `StudentPerformance.csv` - Student performance data
 - `Athletes.xlsx` - Athlete competition data
 - `Coaches.xlsx` - Coach information
 - `EntriesGender.xlsx` - Gender-based entry data
 - `Medals.xlsx` - Medal information
 - `Teams.xlsx` - Team data
+
+### Checking Configuration
+
+You can check your current dataset configuration by calling:
+```bash
+curl http://localhost:5001/api/dataset/config
+```
+
+This endpoint returns:
+- Current base data directory
+- Paths to all dataset files
+- Validation status of the data directory
+- List of available and missing files
+
+### Example Configuration Usage
+
+```python
+from configs.dataset_config import dataset_config
+
+# Get dataset paths
+athletes_path = dataset_config.athletes_dataset_path
+student_path = dataset_config.student_dataset_path
+
+# Validate data directory
+validation = dataset_config.validate_data_directory()
+if validation['valid']:
+    print("All data files are available!")
+else:
+    print(f"Missing files: {validation['missing_files']}")
+```
 
 ## Project Structure
 
@@ -122,7 +177,8 @@ flask-API/
 │   ├── athlete_routes.py    # Athlete data endpoints
 │   └── dataset_routes.py    # Dataset info endpoints
 ├── configs/                  # Configuration files
-│   └── swagger_config.py    # Swagger UI configuration
+│   ├── swagger_config.py    # Swagger UI configuration
+│   └── dataset_config.py    # Dataset path configuration
 ├── utils/                    # Utility functions
 │   ├── __init__.py
 │   └── startup.py           # Startup utilities

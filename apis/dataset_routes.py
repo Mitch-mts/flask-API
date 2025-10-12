@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 from ServiceFunctions import ServiceFunctions, getData, getExcelData
+from configs.dataset_config import dataset_config
 
 # Create Blueprint for dataset routes
 dataset_bp = Blueprint('dataset', __name__)
@@ -7,8 +8,8 @@ dataset_bp = Blueprint('dataset', __name__)
 # Initialize service functions
 functions = ServiceFunctions()
 
-# Dataset path
-athletesDataSetPath = "./data/Athletes.xlsx"
+# Dataset path - now using centralized configuration
+athletesDataSetPath = dataset_config.athletes_dataset_path
 
 @dataset_bp.route('/api/dataset/shape')
 def getDatasetShape():
@@ -263,5 +264,38 @@ def getDatasetPaginated():
             })
         else:
             return jsonify({"error": "Failed to load dataset"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@dataset_bp.route('/api/dataset/config')
+def getDatasetConfig():
+    """
+    Get dataset configuration information
+    ---
+    tags:
+      - Dataset Info
+    responses:
+      200:
+        description: Dataset configuration information
+        schema:
+          type: object
+          properties:
+            base_directory:
+              type: string
+            athletes_path:
+              type: string
+            validation:
+              type: object
+            message:
+              type: string
+    """
+    try:
+        validation_result = dataset_config.validate_data_directory()
+        return jsonify({
+            "base_directory": dataset_config.base_data_dir,
+            "athletes_path": dataset_config.athletes_dataset_path,
+            "validation": validation_result,
+            "message": "Dataset configuration retrieved successfully"
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500

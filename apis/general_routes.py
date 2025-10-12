@@ -41,35 +41,6 @@ def hello():
     response = functions.hello_world()
     return jsonify({"message": response})
 
-@general_bp.route('/api/health')
-def health_check():
-    """
-    Health check endpoint
-    ---
-    tags:
-      - General
-    responses:
-      200:
-        description: API health status
-        schema:
-          type: object
-          properties:
-            status:
-              type: string
-            timestamp:
-              type: string
-            version:
-              type: string
-    """
-    from datetime import datetime
-    return jsonify({
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "version": "1.0.0"
-    })
-
-@general_bp.route('/api/info')
-def api_info():
     """
     API information endpoint
     ---

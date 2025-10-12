@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, jsonify
 from ServiceFunctions import ServiceFunctions, getCSVData
+from configs.dataset_config import dataset_config
 
 # Create Blueprint for student routes
 student_bp = Blueprint('student', __name__)
@@ -7,8 +8,8 @@ student_bp = Blueprint('student', __name__)
 # Initialize service functions
 functions = ServiceFunctions()
 
-# Dataset path
-studentDataSetPath = "./data/StudentPerformance.csv"
+# Dataset path - now using centralized configuration
+studentDataSetPath = dataset_config.student_dataset_path
 
 def getStudentDataSet():
     """Extract dataset values and return first ten records"""

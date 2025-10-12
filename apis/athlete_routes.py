@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, jsonify
 from ServiceFunctions import ServiceFunctions, getData
+from configs.dataset_config import dataset_config
 
 # Create Blueprint for athlete routes
 athlete_bp = Blueprint('athlete', __name__)
@@ -7,11 +8,11 @@ athlete_bp = Blueprint('athlete', __name__)
 # Initialize service functions
 functions = ServiceFunctions()
 
-# Dataset path
-athletesDataSetPath = "./data/Athletes.xlsx"
+# Dataset path - now using centralized configuration
+athletesDataSetPath = dataset_config.athletes_dataset_path
 
 def getAthletesInfoFromTheHead(numberOfRecords):
-    """Get first 10 athlete records"""
+    """Get first specified number of athlete records"""
     try:
         data = functions.getHeadDataInfo(athletesDataSetPath, numberOfRecords)
         return data
@@ -19,7 +20,7 @@ def getAthletesInfoFromTheHead(numberOfRecords):
         return f"<p>Error: File not found: {athletesDataSetPath}, Reason: {e}</p>"
 
 def getAthletesInfoFromTheTail(numberOfRecords):
-    """Get last 10 athlete records"""
+    """Get last specified number of athlete records"""
     try:
         data = functions.getTailDataInfo(athletesDataSetPath, numberOfRecords)
         return data
