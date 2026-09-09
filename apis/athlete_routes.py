@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, jsonify
-from ServiceFunctions import ServiceFunctions, getData
+from ServiceFunctions import ServiceFunctions, get_data
 from configs.dataset_config import dataset_config
 
 # Create Blueprint for athlete routes
@@ -14,7 +14,7 @@ athletesDataSetPath = dataset_config.athletes_dataset_path
 def getAthletesInfoFromTheHead(numberOfRecords):
     """Get first specified number of athlete records"""
     try:
-        data = functions.getHeadDataInfo(athletesDataSetPath, numberOfRecords)
+        data = functions.get_head_data_info(athletesDataSetPath, numberOfRecords)
         return data
     except Exception as e:
         return f"<p>Error: File not found: {athletesDataSetPath}, Reason: {e}</p>"
@@ -22,14 +22,14 @@ def getAthletesInfoFromTheHead(numberOfRecords):
 def getAthletesInfoFromTheTail(numberOfRecords):
     """Get last specified number of athlete records"""
     try:
-        data = functions.getTailDataInfo(athletesDataSetPath, numberOfRecords)
+        data = functions.get_tail_data_info(athletesDataSetPath, numberOfRecords)
         return data
     except Exception as e:
         return f"<p>Error: File not found: {athletesDataSetPath}, Reason: {e}</p>"
 
 def getAthletesDataFromHead(numberOfRecords):
     try:
-        data = getData(athletesDataSetPath)
+        data = get_data(athletesDataSetPath)
         print('data form service layer', data)
         print('numberOfRecords:', numberOfRecords, type(numberOfRecords))
         return data.head(numberOfRecords)
@@ -40,7 +40,7 @@ def getAthletesDataFromHead(numberOfRecords):
 def getAthletesDataFromTail(numberOfRecords):
     """Get last N athlete records as raw data"""
     try:
-        data = getData(athletesDataSetPath)
+        data = get_data(athletesDataSetPath)
         return data.tail(numberOfRecords)
     except Exception as e:
         print(f"Error in getAthletesDataFromTail: {e}")
@@ -263,7 +263,7 @@ def athletesDataAll():
               type: string
     """
     try:
-        data = getData(athletesDataSetPath)
+        data = get_data(athletesDataSetPath)
         if data is not None:
             # Convert DataFrame to JSON-serializable format
             records = data.to_dict('records')

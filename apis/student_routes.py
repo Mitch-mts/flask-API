@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, jsonify
-from ServiceFunctions import ServiceFunctions, getCSVData
+from ServiceFunctions import ServiceFunctions, get_csv_data
 from configs.dataset_config import dataset_config
 
 # Create Blueprint for student routes
@@ -22,7 +22,7 @@ def getStudentDataSet():
 def getStudentDataRaw():
     """Get first 10 student records as raw data"""
     try:
-        data = getCSVData(studentDataSetPath)
+        data = get_csv_data(studentDataSetPath)
         return data.head(10)
     except Exception as e:
         return None
@@ -104,7 +104,7 @@ def studentsDataAll():
               type: string
     """
     try:
-        data = getCSVData(studentDataSetPath)
+        data = get_csv_data(studentDataSetPath)
         if data is not None:
             # Convert DataFrame to JSON-serializable format
             records = data.to_dict('records')

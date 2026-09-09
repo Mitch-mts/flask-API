@@ -4,13 +4,15 @@ from .general_routes import general_bp
 from .student_routes import student_bp
 from .athlete_routes import athlete_bp
 from .dataset_routes import dataset_bp
+from .pipeline_routes import pipeline_bp
 
 # List of all blueprints to register
 blueprints = [
     general_bp,
     student_bp,
     athlete_bp,
-    dataset_bp
+    dataset_bp,
+    pipeline_bp,
 ]
 
 def register_blueprints(app):

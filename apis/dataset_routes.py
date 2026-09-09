@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from ServiceFunctions import ServiceFunctions, getData, getExcelData
+from ServiceFunctions import ServiceFunctions, get_data, get_excel_data
 from configs.dataset_config import dataset_config
 
 # Create Blueprint for dataset routes
@@ -30,7 +30,7 @@ def getDatasetShape():
                 type: integer
     """
     try:
-        shape = functions.getDataSetShape(athletesDataSetPath)
+        shape = functions.get_data_set_shape(athletesDataSetPath)
         return jsonify({"shape": shape})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -61,7 +61,7 @@ def getUniqueValues(columnName):
                 type: string
     """
     try:
-        unique_values = functions.getUniqueColumnValues(athletesDataSetPath, columnName)
+        unique_values = functions.get_unique_column_values(athletesDataSetPath, columnName)
         return jsonify({"unique_values": unique_values.tolist()})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -108,7 +108,7 @@ def getColumnCounts(columnName):
               example: "Failed to process request"
     """
     try:
-        counts = functions.getColumnValueCount(athletesDataSetPath, columnName)
+        counts = functions.get_column_value_count(athletesDataSetPath, columnName)
         return jsonify({"value_counts": counts.to_dict()})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -135,7 +135,7 @@ def getDatasetColumns():
               type: object
     """
     try:
-        data = getData(athletesDataSetPath)
+        data = get_data(athletesDataSetPath)
         if data is not None:
             return jsonify({
                 "columns": data.columns.tolist(),
@@ -177,7 +177,7 @@ def getDatasetSample():
     """
     try:
         size = request.args.get('size', 5, type=int)
-        data = getData(athletesDataSetPath)
+        data = get_data(athletesDataSetPath)
         if data is not None:
             sample_data = data.sample(n=min(size, len(data)))
             records = sample_data.to_dict('records')
@@ -237,7 +237,7 @@ def getDatasetPaginated():
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
         
-        data = getData(athletesDataSetPath)
+        data = get_data(athletesDataSetPath)
         if data is not None:
             total_records = len(data)
             total_pages = (total_records + per_page - 1) // per_page

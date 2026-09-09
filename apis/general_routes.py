@@ -20,7 +20,10 @@ def helloWorld():
         schema:
           type: string
     """
-    return "Hello, from your Flask Data Analysis API!"
+    return (
+        "Hello, from your Flask Data Analysis API! "
+        "Open /studio or /dashboard to watch jobs, choose cleaning steps, chart the result, and export CSV or Excel."
+    )
 
 @general_bp.route('/api/hello')
 def hello():
