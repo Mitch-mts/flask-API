@@ -1,4 +1,13 @@
-"""In-memory upload jobs and selectable cleaning operations."""
+"""
+In-memory upload jobs and selectable cleaning operations.
+
+Flow used by Data Studio:
+1. create_from_upload / create_from_existing stores a pandas DataFrame
+2. process() applies the user-selected cleaning steps in a background thread
+3. write_workbook() saves an .xlsx so the dashboard can open the sheet
+4. get_record() returns one row at a time for the inspect pager
+5. run_explore() calls ServiceFunctions helpers on that sheet
+"""
 
 import math
 import os
@@ -391,6 +400,12 @@ class PipelineStore:
         }
         with self._lock:
             self._jobs[job_id] = job
+        # Write an Excel copy immediately so "Open Excel" works before cleaning.
+        try:
+            self.write_workbook(job_id, "original")
+            self.write_workbook(job_id, "cleaned")
+        except Exception:
+            pass
         return self.public_job(job_id)
 
     def get(self, job_id):
@@ -460,6 +475,8 @@ class PipelineStore:
         return self.job_card(job_id)
 
     def _run_process(self, job_id, operations):
+        # Background worker: apply the user's chosen cleaning steps, then
+        # write a cleaned Excel workbook so Explore / ServiceFunctions can open it.
         job = self.get(job_id)
         try:
             cleaned, applied = apply_operations(job["original"].copy(), operations)
@@ -467,10 +484,77 @@ class PipelineStore:
             job["applied"] = applied
             job["status"] = "ready"
             job["error"] = None
+            self.write_workbook(job_id, "cleaned")
         except Exception as exc:
             job["status"] = "error"
             job["error"] = str(exc)
         job["updated_at"] = utc_now()
+
+    def frame_for(self, job_id, source="cleaned"):
+        """Pick the original upload or the cleaned sheet for inspect / paging."""
+        job = self.get(job_id)
+        if source == "original":
+            return job["original"]
+        return job["cleaned"]
+
+    def write_workbook(self, job_id, source="cleaned"):
+        """
+        Save the current DataFrame as a real .xlsx file in uploads/.
+        The dashboard 'Open Excel' button downloads this workbook.
+        """
+        job = self.get(job_id)
+        frame = self.frame_for(job_id, source)
+        path = os.path.join(self.upload_dir, f"{job_id}_{source}.xlsx")
+        frame.to_excel(path, index=False)
+        job[f"{source}_xlsx"] = path
+        return path
+
+    def workbook_bytes(self, job_id, source="cleaned"):
+        """Return the Excel file for download, creating it if needed."""
+        path = self.write_workbook(job_id, source)
+        job = self.get(job_id)
+        base_name = os.path.splitext(job["source_name"])[0]
+        safe_name = re.sub(r"[^\w\-]+", "_", base_name).strip("_") or "dataset"
+        from io import BytesIO
+        with open(path, "rb") as handle:
+            buffer = BytesIO(handle.read())
+        buffer.seek(0)
+        return buffer, f"{safe_name}_{source}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    def get_record(self, job_id, source="cleaned", index=0):
+        """
+        One row at a time for the dashboard pager.
+        index is 0-based and is clamped to the valid range.
+        """
+        frame = self.frame_for(job_id, source)
+        total = int(len(frame))
+        if total == 0:
+            return {
+                "index": 0,
+                "total": 0,
+                "record": {},
+                "columns": [str(column) for column in frame.columns],
+                "has_prev": False,
+                "has_next": False,
+                "source": source,
+            }
+        index = max(0, min(int(index), total - 1))
+        row = _safe_records(frame.iloc[[index]])[0]
+        return {
+            "index": index,
+            "total": total,
+            "record": row,
+            "columns": [str(column) for column in frame.columns],
+            "has_prev": index > 0,
+            "has_next": index < total - 1,
+            "source": source,
+        }
+
+    def run_explore(self, job_id, source, method_id, params):
+        """Run one ServiceFunctions inspect method against the chosen sheet."""
+        from utils.explore import run_service_method
+        frame = self.frame_for(job_id, source)
+        return run_service_method(frame, method_id, params)
 
     def mark_exported(self, job_id):
         job = self.get(job_id)
@@ -478,11 +562,14 @@ class PipelineStore:
         job["updated_at"] = utc_now()
 
     def delete(self, job_id):
+        # Remove the job from memory and delete any files we created for it
+        # (the original upload plus generated Excel workbooks).
         job = self.get(job_id)
-        path = job.get("path")
         upload_dir = os.path.abspath(self.upload_dir)
-        if path and os.path.abspath(path).startswith(upload_dir) and os.path.isfile(path):
-            os.remove(path)
+        for key in ("path", "original_xlsx", "cleaned_xlsx"):
+            path = job.get(key)
+            if path and os.path.abspath(path).startswith(upload_dir) and os.path.isfile(path):
+                os.remove(path)
         with self._lock:
             self._jobs.pop(job_id, None)
 

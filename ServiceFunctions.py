@@ -314,3 +314,87 @@ class ServiceFunctions:
         except Exception as e:
             print(f"Error ordering data by columns {columns}: {e}")
             return None
+
+    # ------------------------------------------------------------------
+    # Data Studio inspect helpers
+    # These run the same ideas as the file-path methods above, but on an
+    # already-loaded DataFrame so the dashboard can open a job's Excel
+    # contents and inspect them one method / one row at a time.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def frame_shape(data):
+        """Return (row_count, column_count) for the current sheet."""
+        return data.shape
+
+    @staticmethod
+    def frame_columns(data):
+        """Return column names and pandas dtypes as strings."""
+        return {
+            "columns": [str(column) for column in data.columns],
+            "dtypes": {str(column): str(dtype) for column, dtype in data.dtypes.items()},
+        }
+
+    @staticmethod
+    def frame_head(data, number_of_records=10):
+        """First n rows — same intent as get_head_data_info."""
+        return data.head(int(number_of_records)).copy()
+
+    @staticmethod
+    def frame_tail(data, number_of_records=10):
+        """Last n rows — same intent as get_tail_data_info."""
+        return data.tail(int(number_of_records)).copy()
+
+    @staticmethod
+    def frame_unique_values(data, column_name):
+        """Unique values in one column — same as get_unique_column_values."""
+        if column_name not in data.columns:
+            raise ValueError(f"Column '{column_name}' not found. Available: {list(data.columns)}")
+        return data[column_name].dropna().unique()
+
+    @staticmethod
+    def frame_value_counts(data, column_name):
+        """How often each value appears — same as get_column_value_count."""
+        if column_name not in data.columns:
+            raise ValueError(f"Column '{column_name}' not found. Available: {list(data.columns)}")
+        return data[column_name].value_counts(dropna=False)
+
+    @staticmethod
+    def frame_group_count(data, column_name):
+        """Group by one column and count rows — same as group_data_by_column_and_count."""
+        if column_name not in data.columns:
+            raise ValueError(f"Column '{column_name}' not found. Available: {list(data.columns)}")
+        return data.groupby(column_name, dropna=False).size().sort_values(ascending=False)
+
+    @staticmethod
+    def frame_group_count_two(data, column1, column2):
+        """Group by two columns and count rows — same as group_data_by_two_columns_and_count."""
+        for column_name in (column1, column2):
+            if column_name not in data.columns:
+                raise ValueError(f"Column '{column_name}' not found. Available: {list(data.columns)}")
+        return data.groupby([column1, column2], dropna=False).size().sort_values(ascending=False)
+
+    @staticmethod
+    def frame_sort(data, columns, ascending=True):
+        """Sort rows — same as ordering_data."""
+        if isinstance(columns, str):
+            columns = [columns]
+        for column_name in columns:
+            if column_name not in data.columns:
+                raise ValueError(f"Column '{column_name}' not found. Available: {list(data.columns)}")
+        return data.sort_values(by=columns, ascending=ascending)
+
+    @staticmethod
+    def frame_combine_columns(data, column1, column2, separator=" | "):
+        """Join two columns into one series — same as combine_data_set_columns."""
+        for column_name in (column1, column2):
+            if column_name not in data.columns:
+                raise ValueError(f"Column '{column_name}' not found. Available: {list(data.columns)}")
+        return data[column1].astype(str) + separator + data[column2].astype(str)
+
+    @staticmethod
+    def frame_median(data, column_name):
+        """Median of a numeric column — same as median_of_column."""
+        if column_name not in data.columns:
+            raise ValueError(f"Column '{column_name}' not found. Available: {list(data.columns)}")
+        return data[column_name].median()

@@ -1,8 +1,16 @@
+"""
+Data Studio HTTP routes.
+
+/studio and /dashboard render the UI.
+/api/pipeline/* handles upload, cleaning, charts, Excel download, and
+ServiceFunctions inspect calls used on the Explore panel.
+"""
 import os
 
 from flask import Blueprint, current_app, jsonify, render_template, request, send_file
 
 from configs.dataset_config import dataset_config
+from utils.explore import EXPLORE_METHODS
 from utils.pipeline import AVAILABLE_FEATURES, PipelineStore, build_chart
 
 pipeline_bp = Blueprint("pipeline", __name__)
@@ -134,6 +142,7 @@ def list_features():
             {"id": "box", "label": "Box"},
             {"id": "line", "label": "Line"},
         ],
+        "explore_methods": EXPLORE_METHODS,
     })
 
 
@@ -305,5 +314,129 @@ def export_dataset(job_id):
         return send_file(buffer, as_attachment=True, download_name=filename, mimetype=mime)
     except KeyError as exc:
         return jsonify({"error": str(exc)}), 404
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@pipeline_bp.route("/api/pipeline/jobs/<string:job_id>/record", methods=["GET"])
+def get_job_record(job_id):
+    """
+    Return a single row so the dashboard can step through the sheet one record at a time
+    ---
+    tags:
+      - Data Studio
+    parameters:
+      - name: job_id
+        in: path
+        type: string
+        required: true
+      - name: source
+        in: query
+        type: string
+        enum: [original, cleaned]
+        default: cleaned
+      - name: index
+        in: query
+        type: integer
+        default: 0
+    responses:
+      200:
+        description: One record and pager metadata
+    """
+    try:
+        source = request.args.get("source", "cleaned")
+        index = request.args.get("index", 0, type=int)
+        return jsonify(get_store().get_record(job_id, source, index))
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@pipeline_bp.route("/api/pipeline/jobs/<string:job_id>/workbook", methods=["GET"])
+def download_workbook(job_id):
+    """
+    Download the job as an Excel workbook so it can be opened in Excel
+    ---
+    tags:
+      - Data Studio
+    parameters:
+      - name: job_id
+        in: path
+        type: string
+        required: true
+      - name: source
+        in: query
+        type: string
+        enum: [original, cleaned]
+        default: cleaned
+    responses:
+      200:
+        description: Excel file
+    """
+    try:
+        source = request.args.get("source", "cleaned")
+        buffer, filename, mime = get_store().workbook_bytes(job_id, source)
+        return send_file(buffer, as_attachment=True, download_name=filename, mimetype=mime)
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@pipeline_bp.route("/api/pipeline/explore", methods=["POST"])
+def explore_dataset():
+    """
+    Run one ServiceFunctions inspect method on the uploaded or cleaned sheet
+    ---
+    tags:
+      - Data Studio
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            job_id:
+              type: string
+            source:
+              type: string
+            method:
+              type: string
+            n:
+              type: integer
+            column:
+              type: string
+            column2:
+              type: string
+            ascending:
+              type: boolean
+    responses:
+      200:
+        description: Inspect result
+    """
+    try:
+        body = request.get_json(silent=True) or {}
+        job_id = body.get("job_id")
+        if not job_id:
+            return jsonify({"error": "job_id is required."}), 400
+        payload = get_store().run_explore(
+            job_id,
+            body.get("source", "cleaned"),
+            body.get("method"),
+            {
+                "n": body.get("n", 10),
+                "column": body.get("column"),
+                "column2": body.get("column2"),
+                "ascending": body.get("ascending", True),
+            },
+        )
+        payload["message"] = f"Ran ServiceFunctions.{payload['service_method']}"
+        return jsonify(payload)
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

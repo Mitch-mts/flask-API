@@ -154,6 +154,30 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.45; }
         }
+        .record-card {
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: #f8f6ff;
+            padding: 1rem 1.2rem;
+        }
+        .record-card dt {
+            color: var(--muted);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .record-card dd {
+            margin: 0 0 0.7rem;
+            font-weight: 600;
+        }
+        #explore-result {
+            overflow: auto;
+            max-height: 360px;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 0.75rem;
+            background: #fcfbff;
+        }
         @media (max-width: 768px) {
             .steps { grid-template-columns: 1fr; }
         }
@@ -165,7 +189,7 @@
             <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
                 <div>
                     <h1><i class="fas fa-table-columns"></i> Data Studio</h1>
-                    <p>Watch every job from one dashboard: upload, running processes, charts, and export.</p>
+                    <p>Watch every job from one dashboard: upload, inspect the Excel sheet with ServiceFunctions, chart, and export.</p>
                 </div>
                 <div class="nav-pills-bar">
                     <button class="nav-chip active" id="nav-dashboard" onclick="showDashboard()">Dashboard</button>
@@ -276,10 +300,80 @@
             <h3 class="h5 mt-4">Cleaned preview</h3>
             <div class="table-wrap" id="cleaned-preview"></div>
         </section>
+
+        <section id="explore" class="panel hidden">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h2 class="h4 mb-1">Open & inspect file</h2>
+                    <p class="hint" id="explore-title">Pick a job, then step through rows or run a ServiceFunctions method.</p>
+                </div>
+                <button class="btn btn-outline-secondary btn-sm" onclick="showDashboard()">Dashboard</button>
+            </div>
+
+            <div class="row g-3 align-items-end mb-3">
+                <div class="col-md-3">
+                    <label class="form-label">Sheet</label>
+                    <select id="explore-source" class="form-select" onchange="state.recordIndex = 0; loadExploreRecord()">
+                        <option value="cleaned">Cleaned data</option>
+                        <option value="original">Original upload</option>
+                    </select>
+                </div>
+                <div class="col-md-9 d-flex flex-wrap gap-2">
+                    <button class="btn btn-success" onclick="openWorkbook()">
+                        <i class="fas fa-file-excel me-1"></i> Open Excel
+                    </button>
+                    <button class="btn btn-outline-primary" onclick="stepRecord(-1)">Previous record</button>
+                    <button class="btn btn-outline-primary" onclick="stepRecord(1)">Next record</button>
+                </div>
+            </div>
+
+            <p class="hint mb-2" id="explore-pager">Record 0 of 0</p>
+            <div class="record-card mb-4" id="explore-record"></div>
+
+            <h3 class="h5">Play with ServiceFunctions methods</h3>
+            <p class="hint mb-3">Choose a method, set its inputs, and run it against the sheet you opened.</p>
+            <div class="row g-3 align-items-end mb-3">
+                <div class="col-md-4">
+                    <label class="form-label">Method</label>
+                    <select id="explore-method" class="form-select" onchange="syncExploreInputs()"></select>
+                </div>
+                <div class="col-md-2" id="explore-n-wrap">
+                    <label class="form-label">N rows</label>
+                    <input id="explore-n" class="form-control" type="number" min="1" value="10">
+                </div>
+                <div class="col-md-3" id="explore-col-wrap">
+                    <label class="form-label">Column</label>
+                    <select id="explore-column" class="form-select"></select>
+                </div>
+                <div class="col-md-3" id="explore-col2-wrap">
+                    <label class="form-label">Second column</label>
+                    <select id="explore-column2" class="form-select"></select>
+                </div>
+                <div class="col-md-3" id="explore-asc-wrap">
+                    <label class="form-check mt-4">
+                        <input id="explore-asc" class="form-check-input" type="checkbox" checked>
+                        Ascending sort
+                    </label>
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-primary w-100" onclick="runExploreMethod()">Run method</button>
+                </div>
+            </div>
+            <p class="hint mb-2" id="explore-method-hint"></p>
+            <div id="explore-result">Run a method to see the result here.</div>
+        </section>
     </div>
 
     <script>
-        const state = { jobId: null, features: [], charts: [], job: null, pollTimer: null };
+        const state = {
+            jobId: null,
+            features: [],
+            charts: [],
+            exploreMethods: [],
+            job: null,
+            pollTimer: null,
+            recordIndex: 0,
+        };
         const STATUS_LABELS = {
             uploaded: "Ready to process",
             processing: "Running",
@@ -308,6 +402,7 @@
         function showDashboard() {
             setNav("dashboard");
             $("dashboard").classList.remove("hidden");
+            $("explore").classList.add("hidden");
             [1, 2, 3].forEach((n) => $(`step-${n}`).classList.add("hidden"));
             refreshDashboard();
         }
@@ -319,6 +414,7 @@
         function showStep(step) {
             setNav("wizard");
             $("dashboard").classList.add("hidden");
+            $("explore").classList.add("hidden");
             [1, 2, 3].forEach((n) => {
                 $(`step-${n}`).classList.toggle("hidden", n !== step);
                 $(`pill-${n}`).className = "step-pill" + (n === step ? " active" : n < step ? " done" : "");
@@ -437,6 +533,7 @@
                     ? `<span class="hint pulse ms-2"><i class="fas fa-spinner fa-spin"></i> running now</span>`
                     : "";
                 const actions = [];
+                actions.push(`<button class="btn btn-sm btn-outline-primary" onclick="openExplore('${job.job_id}')">Open & inspect</button>`);
                 if (job.status === "uploaded" || job.status === "error") {
                     actions.push(`<button class="btn btn-sm btn-primary" onclick="openJob('${job.job_id}', 2)">Choose processes</button>`);
                 }
@@ -483,9 +580,13 @@
             const data = await response.json();
             state.features = data.features;
             state.charts = data.charts;
+            state.exploreMethods = data.explore_methods || [];
             $("dataset-select").innerHTML = `<option value="">Choose one...</option>` +
                 data.datasets.map((item) => `<option value="${item.id}">${item.label}</option>`).join("");
             $("chart-type").innerHTML = data.charts.map((item) => `<option value="${item.id}">${item.label}</option>`).join("");
+            $("explore-method").innerHTML = state.exploreMethods.map(
+                (item) => `<option value="${item.id}">${item.label}</option>`
+            ).join("");
         }
 
         function applyJobToWizard(data, step) {
@@ -611,6 +712,130 @@
                 state.job = null;
             }
             refreshDashboard();
+        }
+
+        // ---- Explore view: open the sheet, page one record, run ServiceFunctions ----
+
+        async function openExplore(jobId) {
+            clearFlash();
+            const response = await fetch(`/api/pipeline/jobs/${jobId}`);
+            const data = await response.json();
+            if (!response.ok) {
+                showFlash(data.error || "Could not open that job.");
+                return;
+            }
+            state.jobId = jobId;
+            state.job = data;
+            state.recordIndex = 0;
+            $("explore-title").textContent = data.source_name;
+            const columns = (data.cleaned || data.original).column_names;
+            $("explore-column").innerHTML = columns.map((name) => `<option value="${name}">${name}</option>`).join("");
+            $("explore-column2").innerHTML = columns.map((name) => `<option value="${name}">${name}</option>`).join("");
+            setNav("dashboard");
+            $("nav-dashboard").classList.remove("active");
+            $("dashboard").classList.add("hidden");
+            $("explore").classList.remove("hidden");
+            [1, 2, 3].forEach((n) => $(`step-${n}`).classList.add("hidden"));
+            syncExploreInputs();
+            await loadExploreRecord();
+        }
+
+        function currentExploreMethod() {
+            return state.exploreMethods.find((item) => item.id === $("explore-method").value) || { needs: [] };
+        }
+
+        function syncExploreInputs() {
+            const needs = currentExploreMethod().needs || [];
+            $("explore-n-wrap").classList.toggle("hidden", !needs.includes("n"));
+            $("explore-col-wrap").classList.toggle("hidden", !needs.includes("column"));
+            $("explore-col2-wrap").classList.toggle("hidden", !needs.includes("column2"));
+            $("explore-asc-wrap").classList.toggle("hidden", !needs.includes("ascending"));
+            $("explore-method-hint").textContent = currentExploreMethod().description || "";
+        }
+
+        async function loadExploreRecord() {
+            const source = $("explore-source").value;
+            const response = await fetch(`/api/pipeline/jobs/${state.jobId}/record?source=${source}&index=${state.recordIndex}`);
+            const data = await response.json();
+            if (!response.ok) {
+                showFlash(data.error || "Could not load that record.");
+                return;
+            }
+            state.recordIndex = data.index;
+            $("explore-pager").textContent = data.total
+                ? `Record ${data.index + 1} of ${data.total}`
+                : "No records in this sheet";
+            const fields = Object.entries(data.record).map(
+                ([key, value]) => `<dt>${key}</dt><dd>${value ?? ""}</dd>`
+            ).join("");
+            $("explore-record").innerHTML = fields || "<p class='mb-0'>This sheet is empty.</p>";
+            $("explore-column").innerHTML = data.columns.map((name) => `<option value="${name}">${name}</option>`).join("");
+            $("explore-column2").innerHTML = data.columns.map((name) => `<option value="${name}">${name}</option>`).join("");
+        }
+
+        function stepRecord(delta) {
+            state.recordIndex = Math.max(0, state.recordIndex + delta);
+            loadExploreRecord();
+        }
+
+        function openWorkbook() {
+            const source = $("explore-source").value;
+            window.location.href = `/api/pipeline/jobs/${state.jobId}/workbook?source=${source}`;
+        }
+
+        function renderExploreResult(data) {
+            if (data.kind === "table") {
+                const headers = data.columns.map((name) => `<th>${name}</th>`).join("");
+                const rows = data.rows.map((row) => {
+                    const cells = data.columns.map((name) => `<td>${row[name] ?? ""}</td>`).join("");
+                    return `<tr>${cells}</tr>`;
+                }).join("");
+                $("explore-result").innerHTML = `<table class="table table-sm table-striped"><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
+                return;
+            }
+            if (data.kind === "pairs") {
+                $("explore-result").innerHTML = `<table class="table table-sm"><tbody>${
+                    data.items.map((item) => `<tr><td>${item.label}</td><td>${item.value}</td></tr>`).join("")
+                }</tbody></table>`;
+                return;
+            }
+            if (data.kind === "list") {
+                $("explore-result").innerHTML = `<ol class="mb-0">${data.items.map((item) => `<li>${item}</li>`).join("")}</ol>`;
+                return;
+            }
+            if (data.kind === "stats") {
+                $("explore-result").innerHTML = `<strong>${data.rows}</strong> rows × <strong>${data.columns}</strong> columns`;
+                return;
+            }
+            if (data.kind === "object") {
+                $("explore-result").innerHTML = `<pre class="mb-0">${JSON.stringify(data.data, null, 2)}</pre>`;
+                return;
+            }
+            $("explore-result").innerHTML = String(data.value ?? "");
+        }
+
+        async function runExploreMethod() {
+            clearFlash();
+            const response = await fetch("/api/pipeline/explore", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    job_id: state.jobId,
+                    source: $("explore-source").value,
+                    method: $("explore-method").value,
+                    n: Number($("explore-n").value || 10),
+                    column: $("explore-column").value,
+                    column2: $("explore-column2").value,
+                    ascending: $("explore-asc").checked,
+                }),
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                showFlash(data.error || "That ServiceFunctions method failed.");
+                return;
+            }
+            showFlash(data.message, "success");
+            renderExploreResult(data);
         }
 
         $("file-input").addEventListener("change", (event) => {
