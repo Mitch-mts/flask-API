@@ -1,12 +1,9 @@
 """
-In-memory upload jobs and selectable cleaning operations.
+Job store for Data Studio.
 
-Flow used by Data Studio:
-1. create_from_upload / create_from_existing stores a pandas DataFrame
-2. process() applies the user-selected cleaning steps in a background thread
-3. write_workbook() saves an .xlsx so the dashboard can open the sheet
-4. get_record() returns one row at a time for the inspect pager
-5. run_explore() calls ServiceFunctions helpers on that sheet
+Cleaning is not implemented here. process() calls
+ServiceFunctions.apply_cleaning_operations(), which runs the clean_* methods
+the user selected in the UI.
 """
 
 import math
@@ -20,81 +17,11 @@ from datetime import datetime, timezone
 import pandas as pd
 import plotly.express as px
 
-from ServiceFunctions import get_data
+from ServiceFunctions import CLEANING_METHODS, ServiceFunctions, get_data
 
 ALLOWED_EXTENSIONS = {".csv", ".xls", ".xlsx"}
-MAX_PREVIEW_ROWS = 20
-
-AVAILABLE_FEATURES = [
-    {
-        "id": "normalize_column_names",
-        "label": "Normalize column names",
-        "description": "Lowercase names and replace spaces or hyphens with underscores.",
-        "needs_columns": False,
-    },
-    {
-        "id": "strip_whitespace",
-        "label": "Trim text whitespace",
-        "description": "Strip leading and trailing spaces and treat blank cells as missing.",
-        "needs_columns": False,
-    },
-    {
-        "id": "infer_numeric_types",
-        "label": "Convert number-like text to numbers",
-        "description": "Turn columns that are mostly numeric text into real numbers so charts and outliers work.",
-        "needs_columns": False,
-    },
-    {
-        "id": "drop_unnamed_columns",
-        "label": "Drop unnamed columns",
-        "description": "Remove leftover Excel index columns such as Unnamed: 0.",
-        "needs_columns": False,
-    },
-    {
-        "id": "drop_duplicates",
-        "label": "Remove duplicate rows",
-        "description": "Keep the first copy of any fully duplicated row.",
-        "needs_columns": False,
-    },
-    {
-        "id": "drop_empty_rows",
-        "label": "Drop completely empty rows",
-        "description": "Remove rows where every cell is blank.",
-        "needs_columns": False,
-    },
-    {
-        "id": "drop_missing_rows",
-        "label": "Drop rows with any missing value",
-        "description": "Remove a row if any column is empty.",
-        "needs_columns": False,
-    },
-    {
-        "id": "fill_missing",
-        "label": "Fill missing values",
-        "description": "Fill blanks using mean or median for numbers and mode for text.",
-        "needs_columns": False,
-        "options": ["auto", "mean", "median", "mode", "ffill"],
-    },
-    {
-        "id": "remove_outliers_iqr",
-        "label": "Remove numeric outliers (IQR)",
-        "description": "Drop rows outside 1.5 × IQR on selected numeric columns (or all numeric columns).",
-        "needs_columns": True,
-    },
-    {
-        "id": "drop_columns",
-        "label": "Drop selected columns",
-        "description": "Remove columns you do not want in the export.",
-        "needs_columns": True,
-    },
-    {
-        "id": "sort_by",
-        "label": "Sort by column",
-        "description": "Sort the cleaned table by one or more columns.",
-        "needs_columns": True,
-    },
-]
-
+MAX_PREVIEW_ROWS = 50
+AVAILABLE_FEATURES = CLEANING_METHODS
 FEATURE_LABELS = {feature["id"]: feature["label"] for feature in AVAILABLE_FEATURES}
 
 
@@ -164,153 +91,9 @@ def summarize_frame(frame, label="current"):
     }
 
 
-def _normalize_column_names(frame):
-    renamed = {}
-    used = set()
-    for column in frame.columns:
-        name = str(column).strip().lower()
-        name = re.sub(r"[^\w]+", "_", name)
-        name = re.sub(r"_+", "_", name).strip("_") or "column"
-        candidate = name
-        index = 2
-        while candidate in used:
-            candidate = f"{name}_{index}"
-            index += 1
-        used.add(candidate)
-        renamed[column] = candidate
-    return frame.rename(columns=renamed)
-
-
-def _strip_whitespace(frame):
-    cleaned = frame.copy()
-    for column in cleaned.select_dtypes(include=["object", "string"]).columns:
-        cleaned[column] = cleaned[column].apply(
-            lambda value: value.strip() if isinstance(value, str) else value
-        )
-        cleaned[column] = cleaned[column].replace("", pd.NA)
-    return cleaned
-
-
-def _infer_numeric_types(frame):
-    cleaned = frame.copy()
-    for column in cleaned.columns:
-        if pd.api.types.is_numeric_dtype(cleaned[column]):
-            continue
-        converted = pd.to_numeric(cleaned[column], errors="coerce")
-        original_non_null = cleaned[column].notna().sum()
-        converted_non_null = converted.notna().sum()
-        if original_non_null and converted_non_null / original_non_null >= 0.8:
-            cleaned[column] = converted
-    return cleaned
-
-
-def _drop_unnamed_columns(frame):
-    keep = [
-        column for column in frame.columns
-        if not re.match(r"(?i)^unnamed", str(column).strip())
-    ]
-    return frame.loc[:, keep]
-
-
-def _fill_missing(frame, strategy="auto"):
-    filled = frame.copy()
-    strategy = (strategy or "auto").lower()
-
-    if strategy == "ffill":
-        return filled.ffill()
-
-    for column in filled.columns:
-        series = filled[column]
-        if not series.isna().any():
-            continue
-        if strategy == "mode" or (strategy == "auto" and not pd.api.types.is_numeric_dtype(series)):
-            mode = series.mode(dropna=True)
-            if not mode.empty:
-                filled[column] = series.fillna(mode.iloc[0])
-            continue
-        if pd.api.types.is_numeric_dtype(series):
-            if strategy == "median" or strategy == "auto":
-                filled[column] = series.fillna(series.median())
-            elif strategy == "mean":
-                filled[column] = series.fillna(series.mean())
-    return filled
-
-
-def _remove_outliers_iqr(frame, columns=None):
-    cleaned = frame.copy()
-    target_columns = columns or [
-        column for column in cleaned.columns if pd.api.types.is_numeric_dtype(cleaned[column])
-    ]
-    mask = pd.Series(True, index=cleaned.index)
-    for column in target_columns:
-        if column not in cleaned.columns or not pd.api.types.is_numeric_dtype(cleaned[column]):
-            continue
-        q1 = cleaned[column].quantile(0.25)
-        q3 = cleaned[column].quantile(0.75)
-        iqr = q3 - q1
-        if pd.isna(iqr) or iqr == 0:
-            continue
-        lower = q1 - 1.5 * iqr
-        upper = q3 + 1.5 * iqr
-        mask &= cleaned[column].isna() | ((cleaned[column] >= lower) & (cleaned[column] <= upper))
-    return cleaned.loc[mask].reset_index(drop=True)
-
-
 def apply_operations(frame, operations):
-    """Apply user-selected cleaning steps in the given order."""
-    cleaned = frame.copy()
-    applied = []
-
-    for operation in operations or []:
-        name = operation.get("id") or operation.get("name")
-        columns = operation.get("columns") or []
-        if isinstance(columns, str):
-            columns = [columns]
-
-        before_rows, before_cols = cleaned.shape
-
-        if name == "normalize_column_names":
-            cleaned = _normalize_column_names(cleaned)
-        elif name == "strip_whitespace":
-            cleaned = _strip_whitespace(cleaned)
-        elif name == "infer_numeric_types":
-            cleaned = _infer_numeric_types(cleaned)
-        elif name == "drop_unnamed_columns":
-            cleaned = _drop_unnamed_columns(cleaned)
-        elif name == "drop_duplicates":
-            cleaned = cleaned.drop_duplicates().reset_index(drop=True)
-        elif name == "drop_empty_rows":
-            cleaned = cleaned.dropna(how="all").reset_index(drop=True)
-        elif name == "drop_missing_rows":
-            cleaned = cleaned.dropna(how="any").reset_index(drop=True)
-        elif name == "fill_missing":
-            cleaned = _fill_missing(cleaned, operation.get("strategy", "auto"))
-        elif name == "remove_outliers_iqr":
-            cleaned = _remove_outliers_iqr(cleaned, columns or None)
-        elif name == "drop_columns":
-            existing = [column for column in columns if column in cleaned.columns]
-            if existing:
-                cleaned = cleaned.drop(columns=existing)
-        elif name == "sort_by":
-            existing = [column for column in columns if column in cleaned.columns]
-            if existing:
-                cleaned = cleaned.sort_values(
-                    by=existing,
-                    ascending=operation.get("ascending", True),
-                ).reset_index(drop=True)
-        else:
-            raise ValueError(f"Unknown processing feature: {name}")
-
-        applied.append({
-            "id": name,
-            "label": FEATURE_LABELS.get(name, name),
-            "rows_before": int(before_rows),
-            "rows_after": int(cleaned.shape[0]),
-            "columns_before": int(before_cols),
-            "columns_after": int(cleaned.shape[1]),
-        })
-
-    return cleaned, applied
+    """Hand the selected steps to ServiceFunctions.apply_cleaning_operations."""
+    return ServiceFunctions.apply_cleaning_operations(frame, operations)
 
 
 def build_chart(frame, chart_type, x=None, y=None):
@@ -549,6 +332,64 @@ class PipelineStore:
             "has_next": index < total - 1,
             "source": source,
         }
+
+    def run_file_method(self, job_id, method, n=10, column=None):
+        """
+        Run the studio ServiceFunctions: head, tail, or value counts.
+
+        Head/tail update the working sheet (for charts and download).
+        Value counts only returns a count table; the file is unchanged.
+        """
+        from ServiceFunctions import ServiceFunctions
+        from utils.explore import serialize_result
+
+        job = self.get(job_id)
+        original = job["original"]
+        method = (method or "").lower()
+        n = max(1, int(n or 10))
+
+        if method == "head":
+            job["cleaned"] = ServiceFunctions.frame_head(original, n)
+            job["applied"] = [{
+                "id": "head",
+                "label": f"First {n} rows",
+                "service_method": "frame_head",
+            }]
+            job["status"] = "ready"
+            job["updated_at"] = utc_now()
+            self.write_workbook(job_id, "cleaned")
+            payload = self.public_job(job_id)
+            payload["view"] = "table"
+            payload["message"] = f"Ran ServiceFunctions.frame_head({n})"
+            return payload
+
+        if method == "tail":
+            job["cleaned"] = ServiceFunctions.frame_tail(original, n)
+            job["applied"] = [{
+                "id": "tail",
+                "label": f"Last {n} rows",
+                "service_method": "frame_tail",
+            }]
+            job["status"] = "ready"
+            job["updated_at"] = utc_now()
+            self.write_workbook(job_id, "cleaned")
+            payload = self.public_job(job_id)
+            payload["view"] = "table"
+            payload["message"] = f"Ran ServiceFunctions.frame_tail({n})"
+            return payload
+
+        if method == "value_counts":
+            if not column:
+                raise ValueError("Choose a column for value counts.")
+            counts = ServiceFunctions.frame_value_counts(original, column)
+            payload = self.public_job(job_id)
+            payload["view"] = "counts"
+            payload["counts"] = serialize_result(counts)
+            payload["column"] = column
+            payload["message"] = f"Ran ServiceFunctions.frame_value_counts('{column}')"
+            return payload
+
+        raise ValueError("Use method 'head', 'tail', or 'value_counts'.")
 
     def run_explore(self, job_id, source, method_id, params):
         """Run one ServiceFunctions inspect method against the chosen sheet."""

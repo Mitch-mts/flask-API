@@ -9,9 +9,14 @@ import os
 
 from flask import Blueprint, current_app, jsonify, render_template, request, send_file
 
+import os
+
+from flask import Blueprint, current_app, jsonify, render_template, request, send_file
+
 from configs.dataset_config import dataset_config
+from ServiceFunctions import CLEANING_METHODS
 from utils.explore import EXPLORE_METHODS
-from utils.pipeline import AVAILABLE_FEATURES, PipelineStore, build_chart
+from utils.pipeline import PipelineStore, build_chart
 
 pipeline_bp = Blueprint("pipeline", __name__)
 
@@ -132,7 +137,7 @@ def list_features():
         description: Available processing features and built-in datasets
     """
     return jsonify({
-        "features": AVAILABLE_FEATURES,
+        "features": CLEANING_METHODS,
         "datasets": [{"id": item["id"], "label": item["label"]} for item in _existing_datasets()],
         "charts": [
             {"id": "bar", "label": "Bar"},
@@ -434,6 +439,52 @@ def explore_dataset():
         )
         payload["message"] = f"Ran ServiceFunctions.{payload['service_method']}"
         return jsonify(payload)
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@pipeline_bp.route("/api/pipeline/run-method", methods=["POST"])
+def run_file_method():
+    """
+    Run head, tail, or value counts from ServiceFunctions on the uploaded file
+    ---
+    tags:
+      - Data Studio
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            job_id:
+              type: string
+            method:
+              type: string
+              enum: [head, tail, value_counts]
+            n:
+              type: integer
+            column:
+              type: string
+    responses:
+      200:
+        description: Method result
+    """
+    try:
+        body = request.get_json(silent=True) or {}
+        job_id = body.get("job_id")
+        if not job_id:
+            return jsonify({"error": "job_id is required."}), 400
+        return jsonify(get_store().run_file_method(
+            job_id,
+            body.get("method"),
+            n=body.get("n", 10),
+            column=body.get("column"),
+        ))
     except KeyError as exc:
         return jsonify({"error": str(exc)}), 404
     except ValueError as exc:

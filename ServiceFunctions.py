@@ -8,6 +8,7 @@ from flask import jsonify
 
 warnings.filterwarnings("ignore")
 import os
+import re
 
 def get_csv_data(data_set_path):
     return pd.read_csv(data_set_path)
@@ -398,3 +399,265 @@ class ServiceFunctions:
         if column_name not in data.columns:
             raise ValueError(f"Column '{column_name}' not found. Available: {list(data.columns)}")
         return data[column_name].median()
+
+    # ------------------------------------------------------------------
+    # Data cleaning — these are the methods Data Studio calls when you
+    # tick cleaning steps. apply_cleaning_operations() runs them in order.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def clean_normalize_column_names(data):
+        """Lowercase names and replace spaces/hyphens with underscores."""
+        renamed = {}
+        used = set()
+        for column in data.columns:
+            name = str(column).strip().lower()
+            name = re.sub(r"[^\w]+", "_", name)
+            name = re.sub(r"_+", "_", name).strip("_") or "column"
+            candidate = name
+            index = 2
+            while candidate in used:
+                candidate = f"{name}_{index}"
+                index += 1
+            used.add(candidate)
+            renamed[column] = candidate
+        return data.rename(columns=renamed)
+
+    @staticmethod
+    def clean_strip_whitespace(data):
+        """Trim text cells and treat blank strings as missing."""
+        cleaned = data.copy()
+        for column in cleaned.select_dtypes(include=["object", "string"]).columns:
+            cleaned[column] = cleaned[column].apply(
+                lambda value: value.strip() if isinstance(value, str) else value
+            )
+            cleaned[column] = cleaned[column].replace("", pd.NA)
+        return cleaned
+
+    @staticmethod
+    def clean_infer_numeric_types(data):
+        """Convert columns that are mostly numeric text into numbers."""
+        cleaned = data.copy()
+        for column in cleaned.columns:
+            if pd.api.types.is_numeric_dtype(cleaned[column]):
+                continue
+            converted = pd.to_numeric(cleaned[column], errors="coerce")
+            original_non_null = cleaned[column].notna().sum()
+            converted_non_null = converted.notna().sum()
+            if original_non_null and converted_non_null / original_non_null >= 0.8:
+                cleaned[column] = converted
+        return cleaned
+
+    @staticmethod
+    def clean_drop_unnamed_columns(data):
+        """Drop leftover Excel index columns such as Unnamed: 0."""
+        keep = [
+            column for column in data.columns
+            if not re.match(r"(?i)^unnamed", str(column).strip())
+        ]
+        return data.loc[:, keep]
+
+    @staticmethod
+    def clean_drop_duplicates(data):
+        """Keep the first copy of fully duplicated rows."""
+        return data.drop_duplicates().reset_index(drop=True)
+
+    @staticmethod
+    def clean_drop_empty_rows(data):
+        """Remove rows where every cell is blank."""
+        return data.dropna(how="all").reset_index(drop=True)
+
+    @staticmethod
+    def clean_drop_missing_rows(data):
+        """Remove a row if any column is empty."""
+        return data.dropna(how="any").reset_index(drop=True)
+
+    @staticmethod
+    def clean_fill_missing(data, strategy="auto"):
+        """Fill blanks: mean/median for numbers, mode for text, or ffill."""
+        filled = data.copy()
+        strategy = (strategy or "auto").lower()
+        if strategy == "ffill":
+            return filled.ffill()
+        for column in filled.columns:
+            series = filled[column]
+            if not series.isna().any():
+                continue
+            if strategy == "mode" or (strategy == "auto" and not pd.api.types.is_numeric_dtype(series)):
+                mode = series.mode(dropna=True)
+                if not mode.empty:
+                    filled[column] = series.fillna(mode.iloc[0])
+                continue
+            if pd.api.types.is_numeric_dtype(series):
+                if strategy in ("median", "auto"):
+                    filled[column] = series.fillna(series.median())
+                elif strategy == "mean":
+                    filled[column] = series.fillna(series.mean())
+        return filled
+
+    @staticmethod
+    def clean_remove_outliers_iqr(data, columns=None):
+        """Drop rows outside 1.5 × IQR on numeric columns."""
+        cleaned = data.copy()
+        target_columns = columns or [
+            column for column in cleaned.columns
+            if pd.api.types.is_numeric_dtype(cleaned[column])
+        ]
+        mask = pd.Series(True, index=cleaned.index)
+        for column in target_columns:
+            if column not in cleaned.columns or not pd.api.types.is_numeric_dtype(cleaned[column]):
+                continue
+            q1 = cleaned[column].quantile(0.25)
+            q3 = cleaned[column].quantile(0.75)
+            iqr = q3 - q1
+            if pd.isna(iqr) or iqr == 0:
+                continue
+            lower = q1 - 1.5 * iqr
+            upper = q3 + 1.5 * iqr
+            mask &= cleaned[column].isna() | ((cleaned[column] >= lower) & (cleaned[column] <= upper))
+        return cleaned.loc[mask].reset_index(drop=True)
+
+    @staticmethod
+    def clean_drop_columns(data, columns=None):
+        """Remove selected columns from the sheet."""
+        existing = [column for column in (columns or []) if column in data.columns]
+        if not existing:
+            return data
+        return data.drop(columns=existing)
+
+    @staticmethod
+    def clean_sort_by(data, columns=None, ascending=True):
+        """Sort the sheet by one or more columns."""
+        existing = [column for column in (columns or []) if column in data.columns]
+        if not existing:
+            return data
+        return data.sort_values(by=existing, ascending=ascending).reset_index(drop=True)
+
+    @staticmethod
+    def apply_cleaning_operations(data, operations):
+        """
+        Run the cleaning methods the UI selected, in that order.
+
+        Each operation is a dict with `id` matching CLEANING_METHODS,
+        plus optional `columns`, `strategy`, and `ascending`.
+        """
+        cleaned = data.copy()
+        applied = []
+        methods_by_id = {item["id"]: item for item in CLEANING_METHODS}
+
+        for operation in operations or []:
+            name = operation.get("id") or operation.get("name")
+            spec = methods_by_id.get(name)
+            if spec is None:
+                raise ValueError(f"Unknown cleaning method: {name}")
+
+            columns = operation.get("columns") or []
+            if isinstance(columns, str):
+                columns = [columns]
+
+            before_rows, before_cols = cleaned.shape
+            helper = getattr(ServiceFunctions, spec["service_method"])
+
+            if name == "fill_missing":
+                cleaned = helper(cleaned, operation.get("strategy", "auto"))
+            elif name in ("remove_outliers_iqr", "drop_columns"):
+                cleaned = helper(cleaned, columns or None)
+            elif name == "sort_by":
+                cleaned = helper(cleaned, columns or None, operation.get("ascending", True))
+            else:
+                cleaned = helper(cleaned)
+
+            applied.append({
+                "id": name,
+                "label": spec["label"],
+                "service_method": spec["service_method"],
+                "rows_before": int(before_rows),
+                "rows_after": int(cleaned.shape[0]),
+                "columns_before": int(before_cols),
+                "columns_after": int(cleaned.shape[1]),
+            })
+
+        return cleaned, applied
+
+
+# Catalog used by Data Studio. `service_method` is the ServiceFunctions name that runs.
+CLEANING_METHODS = [
+    {
+        "id": "normalize_column_names",
+        "label": "Normalize column names",
+        "service_method": "clean_normalize_column_names",
+        "description": "Lowercase names and replace spaces or hyphens with underscores.",
+        "needs_columns": False,
+    },
+    {
+        "id": "strip_whitespace",
+        "label": "Trim text whitespace",
+        "service_method": "clean_strip_whitespace",
+        "description": "Strip leading and trailing spaces and treat blank cells as missing.",
+        "needs_columns": False,
+    },
+    {
+        "id": "infer_numeric_types",
+        "label": "Convert number-like text to numbers",
+        "service_method": "clean_infer_numeric_types",
+        "description": "Turn columns that are mostly numeric text into real numbers.",
+        "needs_columns": False,
+    },
+    {
+        "id": "drop_unnamed_columns",
+        "label": "Drop unnamed columns",
+        "service_method": "clean_drop_unnamed_columns",
+        "description": "Remove leftover Excel index columns such as Unnamed: 0.",
+        "needs_columns": False,
+    },
+    {
+        "id": "drop_duplicates",
+        "label": "Remove duplicate rows",
+        "service_method": "clean_drop_duplicates",
+        "description": "Keep the first copy of any fully duplicated row.",
+        "needs_columns": False,
+    },
+    {
+        "id": "drop_empty_rows",
+        "label": "Drop completely empty rows",
+        "service_method": "clean_drop_empty_rows",
+        "description": "Remove rows where every cell is blank.",
+        "needs_columns": False,
+    },
+    {
+        "id": "drop_missing_rows",
+        "label": "Drop rows with any missing value",
+        "service_method": "clean_drop_missing_rows",
+        "description": "Remove a row if any column is empty.",
+        "needs_columns": False,
+    },
+    {
+        "id": "fill_missing",
+        "label": "Fill missing values",
+        "service_method": "clean_fill_missing",
+        "description": "Fill blanks using mean or median for numbers and mode for text.",
+        "needs_columns": False,
+        "options": ["auto", "mean", "median", "mode", "ffill"],
+    },
+    {
+        "id": "remove_outliers_iqr",
+        "label": "Remove numeric outliers (IQR)",
+        "service_method": "clean_remove_outliers_iqr",
+        "description": "Drop rows outside 1.5 × IQR on selected numeric columns.",
+        "needs_columns": True,
+    },
+    {
+        "id": "drop_columns",
+        "label": "Drop selected columns",
+        "service_method": "clean_drop_columns",
+        "description": "Remove columns you do not want in the export.",
+        "needs_columns": True,
+    },
+    {
+        "id": "sort_by",
+        "label": "Sort by column",
+        "service_method": "clean_sort_by",
+        "description": "Sort the cleaned table by one or more columns.",
+        "needs_columns": True,
+    },
+]

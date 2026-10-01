@@ -1,9 +1,12 @@
 # Flask Data Analysis API
 
-A Flask-based REST API for analyzing student performance and athlete data with integrated Swagger UI documentation.
+A Flask API for student and athlete datasets, plus **Data Studio** — a browser UI that uploads a file, runs `ServiceFunctions` cleaning methods, then inspects or exports the result.
+
+Full Data Studio walkthrough: [docs/DATA_STUDIO.md](docs/DATA_STUDIO.md).
 
 ## Features
 
+- **Data Studio** at `/studio`: upload → head / tail / value counts → charts → download CSV/Excel
 - **Student Performance Analysis**: CSV data processing and visualization
 - **Athlete Data Analysis**: Excel data processing with head/tail operations
 - **Swagger UI**: Interactive API documentation at `/apidocs/`

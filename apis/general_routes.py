@@ -22,7 +22,7 @@ def helloWorld():
     """
     return (
         "Hello, from your Flask Data Analysis API! "
-        "Open /studio or /dashboard to watch jobs, choose cleaning steps, chart the result, and export CSV or Excel."
+        "Open /studio to upload a file, run ServiceFunctions, chart the result, and download CSV or Excel."
     )
 
 @general_bp.route('/api/hello')
